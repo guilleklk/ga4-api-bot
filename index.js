@@ -15,6 +15,11 @@ const SCOPES = ["https://www.googleapis.com/auth/analytics.readonly"];
 
 // ✅ Guardamos el JSON de la cuenta de servicio en un archivo temporal
 const KEYFILE = "/tmp/service-account.json";
+
+if (!process.env.GOOGLE_SERVICE_ACCOUNT) {
+  throw new Error("❌ Missing GOOGLE_SERVICE_ACCOUNT environment variable");
+}
+
 fs.writeFileSync(KEYFILE, process.env.GOOGLE_SERVICE_ACCOUNT);
 
 const auth = new google.auth.GoogleAuth({
