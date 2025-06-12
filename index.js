@@ -12,7 +12,10 @@ const port = process.env.PORT || 3000;
 app.use(bodyParser.json());
 
 const SCOPES = ["https://www.googleapis.com/auth/analytics.readonly"];
-const KEYFILE = "service-account.json"; // asegúrate de subirlo en Render luego
+
+// ✅ Guardamos el JSON de la cuenta de servicio en un archivo temporal
+const KEYFILE = "/tmp/service-account.json";
+fs.writeFileSync(KEYFILE, process.env.GOOGLE_SERVICE_ACCOUNT);
 
 const auth = new google.auth.GoogleAuth({
   keyFile: KEYFILE,
