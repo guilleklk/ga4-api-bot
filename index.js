@@ -12,15 +12,21 @@ const port = process.env.PORT || 3000;
 app.use(bodyParser.json());
 
 const SCOPES = ["https://www.googleapis.com/auth/analytics.readonly"];
-
-// ✅ Guardamos el JSON de la cuenta de servicio en un archivo temporal
 const KEYFILE = "/tmp/service-account.json";
 
+// ✅ Validamos y guardamos la cuenta de servicio como JSON
 if (!process.env.GOOGLE_SERVICE_ACCOUNT) {
   throw new Error("❌ Missing GOOGLE_SERVICE_ACCOUNT environment variable");
 }
 
-fs.writeFileSync(KEYFILE, process.env.GOOGLE_SERVICE_ACCOUNT);
+try {
+  const serviceAccount = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT);
+  fs.writeFileSync(KEYFILE, JSON.stringify(serviceAccount));
+  console.log("✅ service-account.json written correctly");
+} catch (err) {
+  console.error("❌ Invalid GOOGLE_SERVICE_ACCOUNT JSON");
+  throw err;
+}
 
 const auth = new google.auth.GoogleAuth({
   keyFile: KEYFILE,
