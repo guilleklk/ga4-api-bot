@@ -8,24 +8,23 @@ dotenv.config();
 
 const app = express();
 const port = process.env.PORT || 3000;
-
 app.use(bodyParser.json());
 
 const SCOPES = ["https://www.googleapis.com/auth/analytics.readonly"];
 const KEYFILE = "/tmp/service-account.json";
 
-// ✅ Validamos y guardamos la cuenta de servicio como JSON
+// ✅ 1. Verificamos que existe la variable
 if (!process.env.GOOGLE_SERVICE_ACCOUNT) {
   throw new Error("❌ Missing GOOGLE_SERVICE_ACCOUNT environment variable");
 }
 
+// ✅ 2. Parseamos string a JSON, y luego escribimos archivo válido
 try {
-  const serviceAccount = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT);
-  fs.writeFileSync(KEYFILE, JSON.stringify(serviceAccount));
-  console.log("✅ service-account.json written correctly");
+  const parsedCredentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT);
+  fs.writeFileSync(KEYFILE, JSON.stringify(parsedCredentials));
 } catch (err) {
-  console.error("❌ Invalid GOOGLE_SERVICE_ACCOUNT JSON");
-  throw err;
+  console.error("❌ Failed to parse GOOGLE_SERVICE_ACCOUNT:", err.message);
+  process.exit(1);
 }
 
 const auth = new google.auth.GoogleAuth({
