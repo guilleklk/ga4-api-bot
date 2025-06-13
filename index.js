@@ -1,85 +1,61 @@
-import express from "express";
-import { google } from "googleapis";
-import dotenv from "dotenv";
-import bodyParser from "body-parser";
+import 'dotenv/config';
+import fetch from 'node-fetch';
+import { OpenAI } from 'openai';
 
-dotenv.config();
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-const app = express();
-const port = process.env.PORT || 3000;
+const userMessage = "Muéstrame los usuarios activos por ciudad del 1 al 7 de junio de 2024";
 
-app.use(bodyParser.json());
-
-const SCOPES = ["https://www.googleapis.com/auth/analytics.readonly"];
-
-// ✅ Verifica que existe la variable de entorno
-if (!process.env.GOOGLE_SERVICE_ACCOUNT) {
-  throw new Error("❌ Missing GOOGLE_SERVICE_ACCOUNT environment variable");
-}
-
-// ✅ Usa directamente las credenciales parseadas
-const auth = new google.auth.GoogleAuth({
-  credentials: JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT),
-  scopes: SCOPES,
-});
-
-app.post("/ga4", async (req, res) => {
-  console.log("📩 POST /ga4 received");
-
-  const { metric, dimension, startDate, endDate } = req.body;
-
-  if (!metric || !dimension || !startDate || !endDate) {
-    return res.status(400).json({ error: "Missing parameters" });
-  }
-
-  try {
-    const analyticsData = google.analyticsdata({
-      version: "v1beta",
-      auth: await auth.getClient(),
-    });
-
-    const response = await analyticsData.properties.runReport({
-      property: `properties/${process.env.GA4_PROPERTY_ID}`,
-      requestBody: {
-        dateRanges: [{ startDate, endDate }],
-        metrics: [{ name: metric }],
-        dimensions: [{ name: dimension }],
+const functions = [
+  {
+    name: "getGa4Report",
+    description: "Consulta datos de Google Analytics 4 segmentados por métrica, dimensión y fechas.",
+    parameters: {
+      type: "object",
+      properties: {
+        metric: { type: "string" },
+        dimension: { type: "string" },
+        startDate: { type: "string" },
+        endDate: { type: "string" }
       },
-    });
-
-    // ✅ Usa función para convertir los datos en una frase
-    const formatted = formatGa4Response(
-      response.data,
-      metric,
-      dimension,
-      startDate,
-      endDate
-    );
-
-    // ✅ Devuelve la frase en formato limpio para Assistant
-    res.json({ result: formatted });
-  } catch (err) {
-    console.error("❌ GA4 Error:", err.message);
-    res.status(500).json({ error: err.message });
+      required: ["metric", "dimension", "startDate", "endDate"]
+    }
   }
-});
+];
 
-function formatGa4Response(data, metric = "activeUsers", dimension = "city", startDate, endDate) {
-  if (!data?.rows || data.rows.length === 0) {
-    return `No se encontraron datos de ${metric} por ${dimension} entre ${startDate} y ${endDate}.`;
-  }
+const run = async () => {
+  const initial = await openai.chat.completions.create({
+    model: "gpt-4o",
+    messages: [{ role: "user", content: userMessage }],
+    functions,
+    function_call: "auto"
+  });
 
-  const resumen = data.rows
-    .map(row => {
-      const nombre = row.dimensionValues?.[0]?.value || "desconocido";
-      const valor = row.metricValues?.[0]?.value || "0";
-      return `${nombre} (${valor})`;
-    })
-    .join(", ");
+  const functionCall = initial.choices[0].message.function_call;
+  const args = JSON.parse(functionCall.arguments);
 
-  return `Del ${startDate} al ${endDate}, los ${metric} por ${dimension} fueron: ${resumen}.`;
-}
+  console.log("🔧 Assistant pidió llamar a:", functionCall.name);
+  console.log("📦 Con argumentos:", args);
 
-app.listen(port, () => {
-  console.log(`✅ Server running on http://localhost:${port}`);
-});
+  const response = await fetch("https://ga4-api-bot.onrender.com/ga4", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(args)
+  });
+
+  const data = await response.json();
+
+  const followUp = await openai.chat.completions.create({
+    model: "gpt-4o",
+    messages: [
+      { role: "user", content: userMessage },
+      { role: "assistant", function_call },
+      { role: "function", name: "getGa4Report", content: JSON.stringify(data) }
+    ]
+  });
+
+  console.log("\n💬 GPT responde:");
+  console.log(followUp.choices[0].message.content);
+};
+
+run();
