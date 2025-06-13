@@ -2,33 +2,24 @@ import express from "express";
 import { google } from "googleapis";
 import dotenv from "dotenv";
 import bodyParser from "body-parser";
-import fs from "fs";
 
 dotenv.config();
 
 const app = express();
 const port = process.env.PORT || 3000;
+
 app.use(bodyParser.json());
 
 const SCOPES = ["https://www.googleapis.com/auth/analytics.readonly"];
-const KEYFILE = "/tmp/service-account.json";
 
-// ✅ 1. Verificamos que existe la variable
+// ✅ Verifica que existe la variable de entorno
 if (!process.env.GOOGLE_SERVICE_ACCOUNT) {
   throw new Error("❌ Missing GOOGLE_SERVICE_ACCOUNT environment variable");
 }
 
-// ✅ 2. Parseamos string a JSON, y luego escribimos archivo válido
-try {
-  const parsedCredentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT);
-  fs.writeFileSync(KEYFILE, JSON.stringify(parsedCredentials));
-} catch (err) {
-  console.error("❌ Failed to parse GOOGLE_SERVICE_ACCOUNT:", err.message);
-  process.exit(1);
-}
-
+// ✅ Usa directamente las credenciales parseadas
 const auth = new google.auth.GoogleAuth({
-  keyFile: KEYFILE,
+  credentials: JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT),
   scopes: SCOPES,
 });
 
@@ -36,6 +27,10 @@ app.post("/ga4", async (req, res) => {
   console.log("📩 POST /ga4 received");
 
   const { metric, dimension, startDate, endDate } = req.body;
+
+  if (!metric || !dimension || !startDate || !endDate) {
+    return res.status(400).json({ error: "Missing parameters" });
+  }
 
   try {
     const analyticsData = google.analyticsdata({
