@@ -1,10 +1,14 @@
+import express from "express";
 import 'dotenv/config';
-import fetch from 'node-fetch';
-import { OpenAI } from 'openai';
+import fetch from "node-fetch";
+import { OpenAI } from "openai";
+import bodyParser from "body-parser";
 
+const app = express();
+const port = process.env.PORT || 3000;
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-const userMessage = "Muéstrame los usuarios activos por ciudad del 1 al 7 de junio de 2024";
+app.use(bodyParser.json());
 
 const functions = [
   {
@@ -23,39 +27,57 @@ const functions = [
   }
 ];
 
-const run = async () => {
-  const initial = await openai.chat.completions.create({
-    model: "gpt-4o",
-    messages: [{ role: "user", content: userMessage }],
-    functions,
-    function_call: "auto"
-  });
+app.post("/analyze", async (req, res) => {
+  const userMessage = req.body.message;
 
-  const functionCall = initial.choices[0].message.function_call;
-  const args = JSON.parse(functionCall.arguments);
+  if (!userMessage) {
+    return res.status(400).json({ error: "Missing 'message' in body" });
+  }
 
-  console.log("🔧 Assistant pidió llamar a:", functionCall.name);
-  console.log("📦 Con argumentos:", args);
+  try {
+    const initial = await openai.chat.completions.create({
+      model: "gpt-4o",
+      messages: [{ role: "user", content: userMessage }],
+      functions,
+      function_call: "auto"
+    });
 
-  const response = await fetch("https://ga4-api-bot.onrender.com/ga4", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(args)
-  });
+    const functionCall = initial.choices[0].message.function_call;
+    const args = JSON.parse(functionCall.arguments);
 
-  const data = await response.json();
+    // Corrige posibles errores de formato
+    if (args.metric?.toLowerCase().replace(/\s/g, '') === 'activeusers') {
+      args.metric = 'activeUsers';
+    }
 
-  const followUp = await openai.chat.completions.create({
-    model: "gpt-4o",
-    messages: [
-      { role: "user", content: userMessage },
-      { role: "assistant", function_call },
-      { role: "function", name: "getGa4Report", content: JSON.stringify(data) }
-    ]
-  });
+    console.log("📡 GPT pidió:", args);
 
-  console.log("\n💬 GPT responde:");
-  console.log(followUp.choices[0].message.content);
-};
+    // Llamada a tu API en Render
+    const response = await fetch("https://ga4-api-bot.onrender.com/ga4", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(args)
+    });
 
-run();
+    const data = await response.json();
+
+    const followUp = await openai.chat.completions.create({
+      model: "gpt-4o",
+      messages: [
+        { role: "user", content: userMessage },
+        { role: "assistant", function_call: functionCall },
+        { role: "function", name: "getGa4Report", content: JSON.stringify(data) }
+      ]
+    });
+
+    const output = followUp.choices[0].message.content;
+    res.json({ result: output });
+  } catch (err) {
+    console.error("❌ Error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.listen(port, () => {
+  console.log(`✅ Server listening on http://localhost:${port}/analyze`);
+});
