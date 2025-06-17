@@ -2,10 +2,10 @@
   "name": "ga4-openai-bot",
   "version": "1.0.0",
   "description": "",
-  "main": "index.mjs",
+  "main": "src/index.mjs",
   "type": "module",
   "scripts": {
-    "start": "node index.mjs"
+    "start": "node src/index.mjs"
   },
   "dependencies": {
     "@google-analytics/data": "^5.1.0",
