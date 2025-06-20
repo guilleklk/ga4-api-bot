@@ -28,6 +28,13 @@ const functions = [
   }
 ];
 
+function getParsedCredentials() {
+  const raw = process.env.GOOGLE_SERVICE_ACCOUNT;
+  const parsed = JSON.parse(raw);
+  parsed.private_key = parsed.private_key.replace(/\\n/g, '\n');
+  return parsed;
+}
+
 // ✅ Endpoint único híbrido
 app.post("/ga4", async (req, res) => {
   const { message, metric, dimension, startDate, endDate } = req.body;
@@ -36,7 +43,7 @@ app.post("/ga4", async (req, res) => {
   if (metric && dimension && startDate && endDate) {
     try {
       const auth = new google.auth.GoogleAuth({
-        credentials: JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT),
+        credentials: getParsedCredentials(),
         scopes: ["https://www.googleapis.com/auth/analytics.readonly"]
       });
 
@@ -87,7 +94,7 @@ app.post("/ga4", async (req, res) => {
     console.log("🤖 GPT pidió:", args);
 
     const auth = new google.auth.GoogleAuth({
-      credentials: JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT),
+      credentials: getParsedCredentials(),
       scopes: ["https://www.googleapis.com/auth/analytics.readonly"]
     });
 
