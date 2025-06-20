@@ -3,6 +3,7 @@ import 'dotenv/config';
 import fetch from "node-fetch";
 import { OpenAI } from "openai";
 import bodyParser from "body-parser";
+import { google } from "googleapis";
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -27,7 +28,7 @@ const functions = [
   }
 ];
 
-app.post("/ga4", async (req, res) => {
+app.post("/analyze", async (req, res) => {
   const userMessage = req.body.message;
 
   if (!userMessage) {
@@ -52,7 +53,6 @@ app.post("/ga4", async (req, res) => {
 
     console.log("📡 GPT pidió:", args);
 
-    // Llamada a tu API en Render
     const response = await fetch("https://ga4-api-bot.onrender.com/ga4", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -74,6 +74,47 @@ app.post("/ga4", async (req, res) => {
     res.json({ result: output });
   } catch (err) {
     console.error("❌ Error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ✅ NUEVO ENDPOINT: /ga4 para llamadas directas desde el asistente
+app.post("/ga4", async (req, res) => {
+  const { metric, dimension, startDate, endDate } = req.body;
+
+  if (!metric || !dimension || !startDate || !endDate) {
+    return res.status(400).json({ error: "Missing fields in body" });
+  }
+
+  try {
+    const auth = new google.auth.GoogleAuth({
+      credentials: JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT),
+      scopes: ["https://www.googleapis.com/auth/analytics.readonly"]
+    });
+
+    const analytics = google.analyticsdata({
+      version: "v1beta",
+      auth
+    });
+
+    const response = await analytics.properties.runReport({
+      property: `properties/${process.env.GA4_PROPERTY_ID}`,
+      requestBody: {
+        metrics: [{ name: metric }],
+        dimensions: [{ name: dimension }],
+        dateRanges: [{ startDate, endDate }]
+      }
+    });
+
+    const rows = response.data.rows?.map(row => {
+      const dimVal = row.dimensionValues?.[0]?.value;
+      const metVal = row.metricValues?.[0]?.value;
+      return { [dimension]: dimVal, [metric]: metVal };
+    }) || [];
+
+    res.json({ rows });
+  } catch (err) {
+    console.error("❌ GA4 error:", err.message);
     res.status(500).json({ error: err.message });
   }
 });
