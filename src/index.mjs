@@ -27,7 +27,7 @@ const functions = [
   }
 ];
 
-app.post("/analyze", async (req, res) => {
+app.post("/ga4", async (req, res) => {
   const userMessage = req.body.message;
 
   if (!userMessage) {
