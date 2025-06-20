@@ -14,16 +14,24 @@ app.use(bodyParser.json());
 const functions = [
   {
     name: "getGa4Report",
-    description: "Consulta datos de Google Analytics 4 segmentados por métrica, dimensión y fechas.",
+    description: "Consulta datos de Google Analytics 4 con múltiples métricas y dimensiones, y fechas.",
     parameters: {
       type: "object",
       properties: {
-        metric: { type: "string" },
-        dimension: { type: "string" },
+        metrics: {
+          type: "array",
+          items: { type: "string" },
+          example: ["activeUsers", "bounceRate"]
+        },
+        dimensions: {
+          type: "array",
+          items: { type: "string" },
+          example: ["city", "deviceCategory"]
+        },
         startDate: { type: "string" },
         endDate: { type: "string" }
       },
-      required: ["metric", "dimension", "startDate", "endDate"]
+      required: ["metrics", "dimensions", "startDate", "endDate"]
     }
   }
 ];
@@ -35,12 +43,10 @@ function getParsedCredentials() {
   return parsed;
 }
 
-// ✅ Endpoint único híbrido
 app.post("/ga4", async (req, res) => {
-  const { message, metric, dimension, startDate, endDate } = req.body;
+  const { message, metrics, dimensions, startDate, endDate } = req.body;
 
-  // Caso directo (GA4 API)
-  if (metric && dimension && startDate && endDate) {
+  if (metrics && dimensions && startDate && endDate) {
     try {
       const auth = new google.auth.GoogleAuth({
         credentials: getParsedCredentials(),
@@ -50,18 +56,19 @@ app.post("/ga4", async (req, res) => {
       const analytics = google.analyticsdata({ version: "v1beta", auth });
 
       const response = await analytics.properties.runReport({
-        property: properties/${process.env.GA4_PROPERTY_ID},
+        property: `properties/${process.env.GA4_PROPERTY_ID}`,
         requestBody: {
-          metrics: [{ name: metric }],
-          dimensions: [{ name: dimension }],
+          metrics: metrics.map(name => ({ name })),
+          dimensions: dimensions.map(name => ({ name })),
           dateRanges: [{ startDate, endDate }]
         }
       });
 
       const rows = response.data.rows?.map(row => {
-        const dimVal = row.dimensionValues?.[0]?.value;
-        const metVal = row.metricValues?.[0]?.value;
-        return { [dimension]: dimVal, [metric]: metVal };
+        const result = {};
+        row.dimensionValues?.forEach((dim, i) => result[dimensions[i]] = dim.value);
+        row.metricValues?.forEach((met, i) => result[metrics[i]] = met.value);
+        return result;
       }) || [];
 
       return res.json({ rows });
@@ -71,7 +78,6 @@ app.post("/ga4", async (req, res) => {
     }
   }
 
-  // Caso Assistant (GPT)
   if (!message) {
     return res.status(400).json({ error: "Missing 'message' or GA4 fields in body" });
   }
@@ -87,12 +93,6 @@ app.post("/ga4", async (req, res) => {
     const functionCall = initial.choices[0].message.function_call;
     const args = JSON.parse(functionCall.arguments);
 
-    if (args.metric?.toLowerCase().replace(/\s/g, '') === 'activeusers') {
-      args.metric = 'activeUsers';
-    }
-
-    console.log("🤖 GPT pidió:", args);
-
     const auth = new google.auth.GoogleAuth({
       credentials: getParsedCredentials(),
       scopes: ["https://www.googleapis.com/auth/analytics.readonly"]
@@ -101,18 +101,19 @@ app.post("/ga4", async (req, res) => {
     const analytics = google.analyticsdata({ version: "v1beta", auth });
 
     const ga4Response = await analytics.properties.runReport({
-      property: properties/${process.env.GA4_PROPERTY_ID},
+      property: `properties/${process.env.GA4_PROPERTY_ID}`,
       requestBody: {
-        metrics: [{ name: args.metric }],
-        dimensions: [{ name: args.dimension }],
+        metrics: args.metrics.map(name => ({ name })),
+        dimensions: args.dimensions.map(name => ({ name })),
         dateRanges: [{ startDate: args.startDate, endDate: args.endDate }]
       }
     });
 
     const rows = ga4Response.data.rows?.map(row => {
-      const dimVal = row.dimensionValues?.[0]?.value;
-      const metVal = row.metricValues?.[0]?.value;
-      return { [args.dimension]: dimVal, [args.metric]: metVal };
+      const result = {};
+      row.dimensionValues?.forEach((dim, i) => result[args.dimensions[i]] = dim.value);
+      row.metricValues?.forEach((met, i) => result[args.metrics[i]] = met.value);
+      return result;
     }) || [];
 
     const followUp = await openai.chat.completions.create({
@@ -133,5 +134,5 @@ app.post("/ga4", async (req, res) => {
 });
 
 app.listen(port, () => {
-  console.log(✅ Server listening on http://localhost:${port}/ga4);
+  console.log(`✅ Server listening on http://localhost:${port}/ga4`);
 });
