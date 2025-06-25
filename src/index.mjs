@@ -42,7 +42,15 @@ const functions = [
           example: ["city", "deviceCategory"]
         },
         startDate: { type: "string" },
-        endDate: { type: "string" }
+        endDate: { type: "string" },
+        filters: {
+          type: "object",
+          description: "Condiciones para filtrar por dimensión. Clave = dimensión, valor = condición exacta o parte del valor",
+          example: {
+            "country": "Spain",
+            "deviceCategory": "mobile"
+          }
+        }
       },
       required: ["metrics", "dimensions", "startDate", "endDate"]
     }
@@ -84,14 +92,15 @@ function generateInsights(rows, metrics) {
 }
 
 app.post("/ga4", async (req, res) => {
-  const { message, metrics, dimensions, startDate, endDate } = req.body;
+  const { message, metrics, dimensions, startDate, endDate, filters } = req.body;
 
   const invalidMetrics = metrics?.filter(m => !allowedMetrics.includes(m)) || [];
   const invalidDimensions = dimensions?.filter(d => !allowedDimensions.includes(d)) || [];
+  const invalidFilters = Object.keys(filters || {}).filter(f => !allowedDimensions.includes(f));
 
-  if (invalidMetrics.length || invalidDimensions.length) {
+  if (invalidMetrics.length || invalidDimensions.length || invalidFilters.length) {
     return res.status(400).json({
-      error: `Invalid metric(s): ${invalidMetrics.join(", ")} | Invalid dimension(s): ${invalidDimensions.join(", ")}`
+      error: `Invalid metric(s): ${invalidMetrics.join(", ")} | Invalid dimension(s): ${invalidDimensions.join(", ")} | Invalid filters: ${invalidFilters.join(", ")}`
     });
   }
 
@@ -109,7 +118,23 @@ app.post("/ga4", async (req, res) => {
         requestBody: {
           metrics: metrics.map(name => ({ name })),
           dimensions: dimensions.map(name => ({ name })),
-          dateRanges: [{ startDate, endDate }]
+          dateRanges: [{ startDate, endDate }],
+          dimensionFilter: filters
+            ? {
+                andGroup: {
+                  expressions: Object.entries(filters).map(([key, value]) => ({
+                    filter: {
+                      fieldName: key,
+                      stringFilter: {
+                        matchType: "MATCH_TYPE_UNSPECIFIED",
+                        value,
+                        caseSensitive: false
+                      }
+                    }
+                  }))
+                }
+              }
+            : undefined
         }
       });
 
@@ -145,10 +170,11 @@ app.post("/ga4", async (req, res) => {
 
     const invalidMetrics = args.metrics.filter(m => !allowedMetrics.includes(m));
     const invalidDimensions = args.dimensions.filter(d => !allowedDimensions.includes(d));
+    const invalidFilters = Object.keys(args.filters || {}).filter(f => !allowedDimensions.includes(f));
 
-    if (invalidMetrics.length || invalidDimensions.length) {
+    if (invalidMetrics.length || invalidDimensions.length || invalidFilters.length) {
       return res.status(400).json({
-        error: `Invalid metric(s): ${invalidMetrics.join(", ")} | Invalid dimension(s): ${invalidDimensions.join(", ")}`
+        error: `Invalid metric(s): ${invalidMetrics.join(", ")} | Invalid dimension(s): ${invalidDimensions.join(", ")} | Invalid filters: ${invalidFilters.join(", ")}`
       });
     }
 
@@ -164,7 +190,23 @@ app.post("/ga4", async (req, res) => {
       requestBody: {
         metrics: args.metrics.map(name => ({ name })),
         dimensions: args.dimensions.map(name => ({ name })),
-        dateRanges: [{ startDate: args.startDate, endDate: args.endDate }]
+        dateRanges: [{ startDate: args.startDate, endDate: args.endDate }],
+        dimensionFilter: args.filters
+          ? {
+              andGroup: {
+                expressions: Object.entries(args.filters).map(([key, value]) => ({
+                  filter: {
+                    fieldName: key,
+                    stringFilter: {
+                      matchType: "MATCH_TYPE_UNSPECIFIED",
+                      value,
+                      caseSensitive: false
+                    }
+                  }
+                }))
+              }
+            }
+          : undefined
       }
     });
 
