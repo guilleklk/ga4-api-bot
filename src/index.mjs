@@ -56,6 +56,33 @@ function getParsedCredentials() {
   return parsed;
 }
 
+function generateInsights(rows, metrics) {
+  const insights = [];
+
+  if (metrics.includes("bounceRate")) {
+    const highBounce = rows.filter(r => parseFloat(r.bounceRate) > 80);
+    if (highBounce.length) {
+      insights.push(`⚠️ ${highBounce.length} segmentos tienen una tasa de rebote superior al 80%.`);
+    }
+  }
+
+  if (metrics.includes("activeUsers")) {
+    const lowTraffic = rows.filter(r => parseInt(r.activeUsers) < 3);
+    if (lowTraffic.length) {
+      insights.push(`👀 ${lowTraffic.length} segmentos tienen menos de 3 usuarios activos.`);
+    }
+  }
+
+  if (metrics.includes("engagementRate")) {
+    const goodEngagement = rows.filter(r => parseFloat(r.engagementRate) >= 70);
+    if (goodEngagement.length) {
+      insights.push(`✅ ${goodEngagement.length} segmentos tienen un buen ratio de interacción (>= 70%).`);
+    }
+  }
+
+  return insights;
+}
+
 app.post("/ga4", async (req, res) => {
   const { message, metrics, dimensions, startDate, endDate } = req.body;
 
@@ -93,7 +120,8 @@ app.post("/ga4", async (req, res) => {
         return result;
       }) || [];
 
-      return res.json({ rows });
+      const insights = generateInsights(rows, metrics);
+      return res.json({ rows, insights });
     } catch (err) {
       console.error("❌ GA4 error:", err.message);
       return res.status(500).json({ error: err.message });
@@ -147,12 +175,14 @@ app.post("/ga4", async (req, res) => {
       return result;
     }) || [];
 
+    const insights = generateInsights(rows, args.metrics);
+
     const followUp = await openai.chat.completions.create({
       model: "gpt-4o",
       messages: [
         { role: "user", content: message },
         { role: "assistant", function_call: functionCall },
-        { role: "function", name: "getGa4Report", content: JSON.stringify({ rows }) }
+        { role: "function", name: "getGa4Report", content: JSON.stringify({ rows, insights }) }
       ]
     });
 
