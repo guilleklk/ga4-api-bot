@@ -11,6 +11,19 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 app.use(bodyParser.json());
 
+const allowedMetrics = [
+  "activeUsers", "newUsers", "screenPageViews", "engagedSessions",
+  "averageSessionDuration", "bounceRate", "sessions", "engagementRate",
+  "eventCount", "conversions", "totalRevenue", "userEngagementDuration"
+];
+
+const allowedDimensions = [
+  "country", "city", "deviceCategory", "pagePath", "source",
+  "medium", "campaign", "date", "sessionDefaultChannelGroup",
+  "landingPagePlusQueryString", "browser", "operatingSystem",
+  "platform", "hour", "dateHour", "eventName"
+];
+
 const functions = [
   {
     name: "getGa4Report",
@@ -45,6 +58,15 @@ function getParsedCredentials() {
 
 app.post("/ga4", async (req, res) => {
   const { message, metrics, dimensions, startDate, endDate } = req.body;
+
+  const invalidMetrics = metrics?.filter(m => !allowedMetrics.includes(m)) || [];
+  const invalidDimensions = dimensions?.filter(d => !allowedDimensions.includes(d)) || [];
+
+  if (invalidMetrics.length || invalidDimensions.length) {
+    return res.status(400).json({
+      error: `Invalid metric(s): ${invalidMetrics.join(", ")} | Invalid dimension(s): ${invalidDimensions.join(", ")}`
+    });
+  }
 
   if (metrics && dimensions && startDate && endDate) {
     try {
@@ -92,6 +114,15 @@ app.post("/ga4", async (req, res) => {
 
     const functionCall = initial.choices[0].message.function_call;
     const args = JSON.parse(functionCall.arguments);
+
+    const invalidMetrics = args.metrics.filter(m => !allowedMetrics.includes(m));
+    const invalidDimensions = args.dimensions.filter(d => !allowedDimensions.includes(d));
+
+    if (invalidMetrics.length || invalidDimensions.length) {
+      return res.status(400).json({
+        error: `Invalid metric(s): ${invalidMetrics.join(", ")} | Invalid dimension(s): ${invalidDimensions.join(", ")}`
+      });
+    }
 
     const auth = new google.auth.GoogleAuth({
       credentials: getParsedCredentials(),
