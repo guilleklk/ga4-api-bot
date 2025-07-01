@@ -14,20 +14,23 @@ app.use(bodyParser.json());
 const allowedMetrics = [
   "activeUsers", "newUsers", "screenPageViews", "engagedSessions",
   "averageSessionDuration", "bounceRate", "sessions", "engagementRate",
-  "eventCount", "conversions", "totalRevenue", "userEngagementDuration"
+  "eventCount", "conversions", "totalRevenue", "userEngagementDuration",
+  "totalUsers", "purchaseRevenue", "transactions", "sessionsPerUser",
+  "averageSessionDurationSeconds", "returningUsers"
 ];
 
 const allowedDimensions = [
-  "country", "city", "deviceCategory", "pagePath", "source",
-  "medium", "campaign", "date", "sessionDefaultChannelGroup",
-  "landingPagePlusQueryString", "browser", "operatingSystem",
-  "platform", "hour", "dateHour", "eventName"
+  "country", "city", "deviceCategory", "pagePath", "source", "medium",
+  "campaign", "date", "sessionDefaultChannelGroup", "landingPagePlusQueryString",
+  "browser", "operatingSystem", "platform", "hour", "dateHour", "eventName",
+  "continent", "subContinent", "region", "language", "userGender", "userAgeBracket",
+  "adGroupName", "adKeyword", "landingPage", "sourceMedium", "deviceBrand", "screenResolution"
 ];
 
 const functions = [
   {
     name: "getGa4Report",
-    description: "Consulta datos de Google Analytics 4 con múltiples métricas y dimensiones, y fechas.",
+    description: "Consulta datos de Google Analytics 4 con múltiples métricas y dimensiones, fechas y filtros.",
     parameters: {
       type: "object",
       properties: {
@@ -45,11 +48,8 @@ const functions = [
         endDate: { type: "string" },
         filters: {
           type: "object",
-          description: "Condiciones para filtrar por dimensión. Clave = dimensión, valor = condición exacta o parte del valor",
-          example: {
-            "country": "Spain",
-            "deviceCategory": "mobile"
-          }
+          description: "Filtros opcionales por dimensión",
+          example: { "country": "Spain", "deviceCategory": "mobile" }
         }
       },
       required: ["metrics", "dimensions", "startDate", "endDate"]
@@ -66,28 +66,18 @@ function getParsedCredentials() {
 
 function generateInsights(rows, metrics) {
   const insights = [];
-
   if (metrics.includes("bounceRate")) {
     const highBounce = rows.filter(r => parseFloat(r.bounceRate) > 80);
-    if (highBounce.length) {
-      insights.push(`⚠️ ${highBounce.length} segmentos tienen una tasa de rebote superior al 80%.`);
-    }
+    if (highBounce.length) insights.push(`⚠️ ${highBounce.length} segmentos tienen tasa de rebote >80%.`);
   }
-
   if (metrics.includes("activeUsers")) {
-    const lowTraffic = rows.filter(r => parseInt(r.activeUsers) < 3);
-    if (lowTraffic.length) {
-      insights.push(`👀 ${lowTraffic.length} segmentos tienen menos de 3 usuarios activos.`);
-    }
+    const lowUsers = rows.filter(r => parseInt(r.activeUsers) < 3);
+    if (lowUsers.length) insights.push(`👀 ${lowUsers.length} segmentos tienen menos de 3 usuarios activos.`);
   }
-
   if (metrics.includes("engagementRate")) {
-    const goodEngagement = rows.filter(r => parseFloat(r.engagementRate) >= 70);
-    if (goodEngagement.length) {
-      insights.push(`✅ ${goodEngagement.length} segmentos tienen un buen ratio de interacción (>= 70%).`);
-    }
+    const highEngage = rows.filter(r => parseFloat(r.engagementRate) >= 70);
+    if (highEngage.length) insights.push(`✅ ${highEngage.length} segmentos con engagement >=70%.`);
   }
-
   return insights;
 }
 
@@ -100,41 +90,34 @@ app.post("/ga4", async (req, res) => {
 
   if (invalidMetrics.length || invalidDimensions.length || invalidFilters.length) {
     return res.status(400).json({
-      error: `Invalid metric(s): ${invalidMetrics.join(", ")} | Invalid dimension(s): ${invalidDimensions.join(", ")} | Invalid filters: ${invalidFilters.join(", ")}`
+      error: `Invalid metric(s): ${invalidMetrics.join(", ")} | dimension(s): ${invalidDimensions.join(", ")} | filters: ${invalidFilters.join(", ")}`
     });
   }
 
-  if (metrics && dimensions && startDate && endDate) {
-    try {
-      const auth = new google.auth.GoogleAuth({
-        credentials: getParsedCredentials(),
-        scopes: ["https://www.googleapis.com/auth/analytics.readonly"]
-      });
+  try {
+    const auth = new google.auth.GoogleAuth({
+      credentials: getParsedCredentials(),
+      scopes: ["https://www.googleapis.com/auth/analytics.readonly"]
+    });
+    const analytics = google.analyticsdata({ version: "v1beta", auth });
 
-      const analytics = google.analyticsdata({ version: "v1beta", auth });
-
+    if (metrics && dimensions && startDate && endDate) {
       const response = await analytics.properties.runReport({
         property: `properties/${process.env.GA4_PROPERTY_ID}`,
         requestBody: {
           metrics: metrics.map(name => ({ name })),
           dimensions: dimensions.map(name => ({ name })),
           dateRanges: [{ startDate, endDate }],
-          dimensionFilter: filters
-            ? {
-                andGroup: {
-                  expressions: Object.entries(filters).map(([key, value]) => ({
-                    filter: {
-                      fieldName: key,
-                      stringFilter: {
-                        matchType: "MATCH_TYPE_UNSPECIFIED",
-                        value,
-                        caseSensitive: false
-                      }
-                    }
-                  }))
+          dimensionFilter: filters ? {
+            andGroup: {
+              expressions: Object.entries(filters).map(([key, value]) => ({
+                filter: {
+                  fieldName: key,
+                  stringFilter: { matchType: "MATCH_TYPE_UNSPECIFIED", value, caseSensitive: false }
                 }
-              }
-            : undefined
+              }))
+            }
+          } : undefined
         }
       });
 
@@ -147,17 +130,10 @@ app.post("/ga4", async (req, res) => {
 
       const insights = generateInsights(rows, metrics);
       return res.json({ rows, insights });
-    } catch (err) {
-      console.error("❌ GA4 error:", err.message);
-      return res.status(500).json({ error: err.message });
     }
-  }
 
-  if (!message) {
-    return res.status(400).json({ error: "Missing 'message' or GA4 fields in body" });
-  }
+    if (!message) return res.status(400).json({ error: "Missing 'message' or GA4 fields" });
 
-  try {
     const initial = await openai.chat.completions.create({
       model: "gpt-4o",
       messages: [{ role: "user", content: message }],
@@ -168,22 +144,15 @@ app.post("/ga4", async (req, res) => {
     const functionCall = initial.choices[0].message.function_call;
     const args = JSON.parse(functionCall.arguments);
 
-    const invalidMetrics = args.metrics.filter(m => !allowedMetrics.includes(m));
-    const invalidDimensions = args.dimensions.filter(d => !allowedDimensions.includes(d));
-    const invalidFilters = Object.keys(args.filters || {}).filter(f => !allowedDimensions.includes(f));
+    const badMetrics = args.metrics.filter(m => !allowedMetrics.includes(m));
+    const badDims = args.dimensions.filter(d => !allowedDimensions.includes(d));
+    const badFilters = Object.keys(args.filters || {}).filter(f => !allowedDimensions.includes(f));
 
-    if (invalidMetrics.length || invalidDimensions.length || invalidFilters.length) {
+    if (badMetrics.length || badDims.length || badFilters.length) {
       return res.status(400).json({
-        error: `Invalid metric(s): ${invalidMetrics.join(", ")} | Invalid dimension(s): ${invalidDimensions.join(", ")} | Invalid filters: ${invalidFilters.join(", ")}`
+        error: `Invalid metric(s): ${badMetrics.join(", ")} | dimension(s): ${badDims.join(", ")} | filters: ${badFilters.join(", ")}`
       });
     }
-
-    const auth = new google.auth.GoogleAuth({
-      credentials: getParsedCredentials(),
-      scopes: ["https://www.googleapis.com/auth/analytics.readonly"]
-    });
-
-    const analytics = google.analyticsdata({ version: "v1beta", auth });
 
     const ga4Response = await analytics.properties.runReport({
       property: `properties/${process.env.GA4_PROPERTY_ID}`,
@@ -191,22 +160,16 @@ app.post("/ga4", async (req, res) => {
         metrics: args.metrics.map(name => ({ name })),
         dimensions: args.dimensions.map(name => ({ name })),
         dateRanges: [{ startDate: args.startDate, endDate: args.endDate }],
-        dimensionFilter: args.filters
-          ? {
-              andGroup: {
-                expressions: Object.entries(args.filters).map(([key, value]) => ({
-                  filter: {
-                    fieldName: key,
-                    stringFilter: {
-                      matchType: "MATCH_TYPE_UNSPECIFIED",
-                      value,
-                      caseSensitive: false
-                    }
-                  }
-                }))
+        dimensionFilter: args.filters ? {
+          andGroup: {
+            expressions: Object.entries(args.filters).map(([key, value]) => ({
+              filter: {
+                fieldName: key,
+                stringFilter: { matchType: "MATCH_TYPE_UNSPECIFIED", value, caseSensitive: false }
               }
-            }
-          : undefined
+            }))
+          }
+        } : undefined
       }
     });
 
@@ -228,11 +191,10 @@ app.post("/ga4", async (req, res) => {
       ]
     });
 
-    const output = followUp.choices[0].message.content;
-    res.json({ result: output });
+    return res.json({ result: followUp.choices[0].message.content });
   } catch (err) {
-    console.error("❌ GPT error:", err.message);
-    res.status(500).json({ error: err.message });
+    console.error("❌ Error:", err.message);
+    return res.status(500).json({ error: err.message });
   }
 });
 
